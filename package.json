@@ -1,0 +1,29 @@
+{
+  "name": "api-projeto2",
+  "version": "1.0.0",
+  "description": "API gerenciamento de pedidos - Projeto2 CI/CD pipeline (SoulCode/Accenture)",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup src/server.ts --format cjs --target node22 --clean",
+    "start": "node dist/server.js",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "fastify": "^5.8.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@types/supertest": "7.2.0",
+    "supertest": "7.2.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
