@@ -38,23 +38,34 @@ export async function ordersRoutes(app: FastifyInstance) {
         .nonempty(),
     });
 
-    const { customerId, items } = createOrderBodySchema.parse(request.body);
+    try {
+      const { customerId, items } = createOrderBodySchema.parse(request.body);
 
-    const now = new Date().toISOString();
+      const now = new Date().toISOString();
 
-    const order = {
-      id: randomUUID(),
-      customerId,
-      items,
-      total: calculateTotal(items),
-      status: 'draft' as const,
-      createdAt: now,
-      updatedAt: now,
-    };
+      const order = {
+        id: randomUUID(),
+        customerId,
+        items,
+        total: calculateTotal(items),
+        status: 'draft' as const,
+        createdAt: now,
+        updatedAt: now,
+      };
 
-    orders.set(order.id, order);
+      orders.set(order.id, order);
 
-    return response.status(201).send({ order });
+      return response.status(201).send({ order });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return response.status(400).send({
+          error: 'Validation error',
+          issues: error.format(),
+        });
+      }
+
+      throw error;
+    }
   });
 
   app.patch('/:id/status', async (request, response) => {

@@ -12,47 +12,59 @@ describe('Orders routes', () => {
     await app.close();
   });
 
-  it('GET /health returns status ok', async () => {
-    const response = await request(app.server).get('/health');
+  it('GET /orders retorna a lista de pedidos vazia ou preenchida', async () => {
+    const response = await request(app.server).get('/orders');
 
     expect(response.status).toBe(200);
-    expect(response.body.status).toBe('ok');
+    expect(response.body).toHaveProperty('orders');
+    expect(Array.isArray(response.body.orders)).toBe(true);
   });
 
-  it('GET / returns API information', async () => {
-    const response = await request(app.server).get('/');
-
-    expect(response.status).toBe(200);
-    expect(response.body.message).toBeDefined();
-    expect(response.body.version).toBeDefined();
-  });
-
-  it('POST /orders creates an order with the correct total', async () => {
+  it('POST /orders cria um pedido com o total correto', async () => {
     const response = await request(app.server)
       .post('/orders')
       .send({
-        customer: 'Daniel',
+        customerId: randomUUID(),
         items: [{ product: 'Keyboard', quantity: 2, price: 50 }],
       });
 
     expect(response.status).toBe(201);
+    expect(response.body.order).toHaveProperty('id');
     expect(response.body.order.status).toBe('draft');
     expect(response.body.order.total).toBe(100);
   });
 
-  it('POST /orders without items returns 400', async () => {
-    const response = await request(app.server)
-      .post('/orders')
-      .send({ customer: 'Daniel', items: [] });
+  it('POST /orders sem itens ou com dados inválidos retorna erro de validação (400)', async () => {
+    const response = await request(app.server).post('/orders').send({
+      customerId: randomUUID(),
+      items: [],
+    });
 
     expect(response.status).toBe(400);
   });
 
-  it('PATCH /orders/:id/status advances the status correctly', async () => {
+  it('GET /orders/:id busca um pedido existente por ID', async () => {
     const createResponse = await request(app.server)
       .post('/orders')
       .send({
-        customer: 'Ana',
+        customerId: randomUUID(),
+        items: [{ product: 'Headset', quantity: 1, price: 150 }],
+      });
+
+    const orderId = createResponse.body.order.id;
+
+    const response = await request(app.server).get(`/orders/${orderId}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.order.id).toBe(orderId);
+    expect(response.body.order.items[0].product).toBe('Headset');
+  });
+
+  it('PATCH /orders/:id/status avança o status corretamente', async () => {
+    const createResponse = await request(app.server)
+      .post('/orders')
+      .send({
+        customerId: randomUUID(),
         items: [{ product: 'Mouse', quantity: 1, price: 30 }],
       });
 
@@ -66,11 +78,11 @@ describe('Orders routes', () => {
     expect(response.body.order.status).toBe('confirmed');
   });
 
-  it('PATCH /orders/:id/status rejects skipping steps', async () => {
+  it('PATCH /orders/:id/status rejeita pular etapas do fluxo', async () => {
     const createResponse = await request(app.server)
       .post('/orders')
       .send({
-        customer: 'Carlos',
+        customerId: randomUUID(),
         items: [{ product: 'Monitor', quantity: 1, price: 800 }],
       });
 
@@ -81,11 +93,13 @@ describe('Orders routes', () => {
       .send({ status: 'shipped' });
 
     expect(response.status).toBe(409);
+    expect(response.body.error).toContain('Invalid transition');
   });
 
-  it('GET /orders/:id with a nonexistent id returns 404', async () => {
+  it('GET /orders/:id com um id inexistente retorna 404', async () => {
     const response = await request(app.server).get(`/orders/${randomUUID()}`);
 
     expect(response.status).toBe(404);
+    expect(response.body.error).toBe('Order not found');
   });
 });
