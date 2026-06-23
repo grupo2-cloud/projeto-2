@@ -13,5 +13,5 @@ variable "container_image" {
 variable "container_port" {
   type        = number
   description = "Porta exposta pelo container"
-  default     = 8080
+  default     = 3333
 }
