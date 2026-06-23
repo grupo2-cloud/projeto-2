@@ -11,7 +11,7 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
     .default('development'),
-  APP_ENV: z.enum(['homologacao', 'producao']).default('homologacao'),
+  APP_ENV: z.enum(['homologacao', 'production']).default('homologacao'),
   PORT: z.coerce.number().default(3333),
 });
 const _env = envSchema.safeParse(process.env);
