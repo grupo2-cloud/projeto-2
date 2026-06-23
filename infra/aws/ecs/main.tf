@@ -105,16 +105,25 @@ resource "aws_ecs_task_definition" "app" {
   cpu                      = "256"
   memory                   = "512"
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+
   container_definitions = jsonencode([{
     name      = var.project_name
     image     = var.container_image
     essential = true
+    
     portMappings = [{
       containerPort = var.container_port
       hostPort      = var.container_port
       protocol      = "tcp"
     }]
-    environment = [{ name = "CLOUD_PROVIDER", value = "AWS ECS" }]
+
+    environment = [
+      { name = "CLOUD_PROVIDER", value = "AWS ECS" },
+      { name = "NODE_ENV", value = "production" },
+      { name = "APP_ENV", value = "production" },
+      { name = "PORT", value = tostring(var.container_port) }
+    ]
+
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -123,6 +132,7 @@ resource "aws_ecs_task_definition" "app" {
         awslogs-stream-prefix = "ecs"
       }
     }
+
     healthCheck = {
       command = [
         "CMD-SHELL",
