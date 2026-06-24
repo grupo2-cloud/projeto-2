@@ -1,4 +1,4 @@
-name: AWS CI/CD 
+name: AWS CI/CD
 on:
   push:
     branches:
@@ -7,39 +7,57 @@ on:
       - "api/**"
       - ".github/workflows/aws-ci-cd.yml"
   workflow_dispatch:
+
 env:
   AWS_REGION: sa-east-1
   ECR_REPOSITORY: projeto2-cicd-aws
-  ECS_CLUSTER: projeto2-cicd-aws-cluster
-  ECS_SERVICE: projeto2-cicd-aws-service
-  ECS_TASK_FAMILY: projeto2-cicd-aws-task
-  CONTAINER_NAME: projeto2-cicd-aws
+
+  ECS_CLUSTER_HOMOLOG: projeto2-cicd-aws-cluster
+  ECS_SERVICE_HOMOLOG: projeto2-cicd-aws-service
+  ECS_TASK_FAMILY_HOMOLOG: projeto2-cicd-aws-task
+  CONTAINER_NAME_HOMOLOG: projeto2-cicd-aws
+
+  ECS_CLUSTER_PROD: projeto2-cicd-aws-prod-cluster
+  ECS_SERVICE_PROD: projeto2-cicd-aws-prod-service
+  ECS_TASK_FAMILY_PROD: projeto2-cicd-aws-prod-task
+  CONTAINER_NAME_PROD: projeto2-cicd-aws-prod
+
 jobs:
-  build-test-deploy:
-    name: Build, test and deploy to AWS ECS
+  deploy-homologacao:
+    name: Build, Test and Deploy to Homologacao
     runs-on: ubuntu-latest
+    environment: homologacao
+    outputs:
+      image_uri: ${{ steps.build-image.outputs.image_uri }}
+
     steps:
       - name: Baixar codigo
         uses: actions/checkout@v4
+
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22 
+          node-version: 22
+
       - name: Instalar dependencias
         working-directory: ./api
         run: npm install
+
       - name: Executar testes
         working-directory: ./api
         run: npm test
+
       - name: Configurar credenciais AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
       - name: Login no Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
       - name: Build e push da imagem Docker
         id: build-image
         env:
@@ -53,16 +71,18 @@ jobs:
           docker push $IMAGE_URI
           docker push $IMAGE_LATEST
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-      - name: Atualizar ECS com nova imagem
+
+      - name: Deploy em Homologacao
         env:
           IMAGE_URI: ${{ steps.build-image.outputs.image_uri }}
         run: |
           TASK_DEFINITION=$(aws ecs describe-task-definition \
-            --task-definition "$ECS_TASK_FAMILY" \
+            --task-definition "$ECS_TASK_FAMILY_HOMOLOG" \
             --query "taskDefinition")
+
           NEW_TASK_DEFINITION=$(echo "$TASK_DEFINITION" | jq \
             --arg IMAGE "$IMAGE_URI" \
-            --arg NAME "$CONTAINER_NAME" '
+            --arg NAME "$CONTAINER_NAME_HOMOLOG" '
             .containerDefinitions = (
               .containerDefinitions
               | map(if .name == $NAME then .image = $IMAGE else . end)
@@ -76,13 +96,116 @@ jobs:
               .registeredAt,
               .registeredBy
             )')
+
           NEW_TASK_INFO=$(aws ecs register-task-definition \
             --cli-input-json "$NEW_TASK_DEFINITION")
           NEW_TASK_ARN=$(echo "$NEW_TASK_INFO" | jq -r '.taskDefinition.taskDefinitionArn')
+
           aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
+            --cluster "$ECS_CLUSTER_HOMOLOG" \
+            --service "$ECS_SERVICE_HOMOLOG" \
             --task-definition "$NEW_TASK_ARN"
+
           aws ecs wait services-stable \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE"
+            --cluster "$ECS_CLUSTER_HOMOLOG" \
+            --services "$ECS_SERVICE_HOMOLOG"
+
+      - name: Validar saude da aplicacao em Homologacao
+        run: |
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names "projeto2-cicd-aws-alb" \
+            --query "LoadBalancers[0].DNSName" \
+            --output text)
+
+          echo "Testando http://$ALB_DNS/health"
+
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB_DNS/health)
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passou com status $STATUS"
+              exit 0
+            fi
+            echo "Tentativa $i: status $STATUS, aguardando 15s..."
+            sleep 15
+          done
+
+          echo "Health check falhou apos 10 tentativas"
+          exit 1
+
+  deploy-producao:
+    name: Deploy to Producao
+    runs-on: ubuntu-latest
+    needs: deploy-homologacao      
+    environment: producao          
+
+    steps:
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Deploy em Producao
+        env:
+          IMAGE_URI: ${{ needs.deploy-homologacao.outputs.image_uri }}
+        run: |
+          TASK_DEFINITION=$(aws ecs describe-task-definition \
+            --task-definition "$ECS_TASK_FAMILY_PROD" \
+            --query "taskDefinition")
+
+          NEW_TASK_DEFINITION=$(echo "$TASK_DEFINITION" | jq \
+            --arg IMAGE "$IMAGE_URI" \
+            --arg NAME "$CONTAINER_NAME_PROD" '
+            .containerDefinitions = (
+              .containerDefinitions
+              | map(if .name == $NAME then .image = $IMAGE else . end)
+            )
+            | del(
+              .taskDefinitionArn,
+              .revision,
+              .status,
+              .requiresAttributes,
+              .compatibilities,
+              .registeredAt,
+              .registeredBy
+            )')
+
+          NEW_TASK_INFO=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEFINITION")
+          NEW_TASK_ARN=$(echo "$NEW_TASK_INFO" | jq -r '.taskDefinition.taskDefinitionArn')
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER_PROD" \
+            --service "$ECS_SERVICE_PROD" \
+            --task-definition "$NEW_TASK_ARN"
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER_PROD" \
+            --services "$ECS_SERVICE_PROD"
+
+      - name: Validar saude da aplicacao em Producao
+        run: |
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names "projeto2-cicd-aws-prod-alb" \
+            --query "LoadBalancers[0].DNSName" \
+            --output text)
+
+          echo "Testando http://$ALB_DNS/health"
+
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB_DNS/health)
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passou com status $STATUS"
+              exit 0
+            fi
+            echo "Tentativa $i: status $STATUS, aguardando 15s..."
+            sleep 15
+          done
+
+          echo "Health check falhou apos 10 tentativas"
+          exit 1

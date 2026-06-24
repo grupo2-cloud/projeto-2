@@ -5,7 +5,7 @@ export async function generalRoutes(app: FastifyInstance) {
   app.get('/', async () => {
     return {
       message: 'API Gerenciamento de pedidos',
-      version: process.env.npm_package_version,
+      version: process.env.npm_package_version ?? '1.0.0',
       environment: env.APP_ENV,
     };
   });
