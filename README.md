@@ -22,10 +22,10 @@ Atualmente, muitos times ainda realizam deploys de forma manual ou com pouca aut
 O repositório está organizado em três partes principais: aplicação, infraestrutura e automação de deploy.
 
 projeto-2/
-    api/        (Aplicação)
-    infra/      (Terraform)
-    .github/    (CI/CD)
-    scripts/policies 
+├── api/ # Aplicação
+├── infra/ # Terraform
+├── .github/ # CI/CD 
+└── scripts/ # Policies e utilitários
 
 ## Endpoints
 
